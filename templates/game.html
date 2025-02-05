@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Poker Table</title>
+    <style>
+        :root {
+            --table-green: #2d5a27;
+            --gold: #ffd700;
+        }
+
+        body {
+            background: var(--table-green);
+            color: white;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .table-container {
+            position: relative;
+            width: 800px;
+            height: 500px;
+            margin: 0 auto;
+            border: 3px solid var(--gold);
+            border-radius: 10px;
+            padding: 20px;
+        }
+
+        .community-cards {
+            text-align: center;
+            margin: 40px 0;
+        }
+
+        .card {
+            display: inline-block;
+            width: 60px;
+            height: 84px;
+            background: white;
+            border: 1px solid black;
+            border-radius: 5px;
+            margin: 5px;
+            padding: 5px;
+            text-align: center;
+            font-size: 1.2em;
+        }
+
+        .player {
+            position: absolute;
+            border: 2px solid var(--gold);
+            padding: 10px;
+            background: rgba(0,0,0,0.7);
+            border-radius: 5px;
+            min-width: 150px;
+        }
+
+        .player.active {
+            border-color: #ff0000;
+            box-shadow: 0 0 10px red;
+        }
+
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .card {
+            position: relative;
+            background: white;
+            font-size: 1.5em;
+            font-weight: bold;
+        }
+
+        .card::before,
+        .card::after {
+            position: absolute;
+            font-size: 0.8em;
+        }
+
+        .card::before { top: 5px; left: 5px; }
+        .card::after { bottom: 5px; right: 5px; transform: rotate(180deg); }
+
+        .card[data-suit="♥"],
+        .card[data-suit="♦"] { color: red; }
+
+        .card[data-suit="♣"],
+        .card[data-suit="♠"] { color: black; }
+
+        .card[data-suit="♥"]::before,
+        .card[data-suit="♥"]::after { content: '♥'; }
+        .card[data-suit="♦"]::before,
+        .card[data-suit="♦"]::after { content: '♦'; }
+        .card[data-suit="♣"]::before,
+        .card[data-suit="♣"]::after { content: '♣'; }
+        .card[data-suit="♠"]::before,
+        .card[data-suit="♠"]::after { content: '♠'; }
+
+        .card-area {
+            text-align: center;
+            margin: 20px 0;
+        }
+
+    </style>
+</head>
+<body>
+    <div class="table-container">
+        
+        <div id="playerCards" class="card-area"></div>
+
+        <div class="community-cards" id="communityCards">
+            <!-- Cards will be inserted dynamically by JavaScript -->
+        </div>
+        
+        <div id="players"></div>
+
+
+        <div id="playerControls" style="display: none;">
+            <div class="control-group">
+                <button class="action-btn fold" onclick="fold()">Fold</button>
+                <button class="action-btn call" onclick="call()">Call</button>
+                <div class="raise-group">
+                    <input type="number" id="raiseAmount" value="100">
+                    <button class="action-btn raise" onclick="raise()">Raise</button>
+                </div>
+            </div>
+            <div id="timer">Time to act: <span id="countdown">30</span>s</div>
+        </div>
+
+        <div id="gameStatus">
+            <h2 id="phaseIndicator">Game Phase: Waiting to Start</h2>
+            <div id="actionPrompt"></div>
+        </div>
+
+        <div id="gameInstructions">
+            <p>Game Starting! Check your cards above and:</p>
+            <ol>
+                <li>Wait for your turn (highlighted player)</li>
+                <li>Choose Fold/Call/Raise when controls appear below</li>
+                <li>Watch community cards as rounds progress</li>
+            </ol>
+        </div>
+        
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const gameId = window.location.pathname.split('/').pop();
+        let currentPlayerId = null;
+
+        // Player positions around the table
+        const positions = [
+            { top: '20%', left: '10%' },  // Seat 1
+            { top: '10%', left: '30%' },  // Seat 2
+            { top: '10%', left: '70%' },  // Seat 3
+            { top: '20%', left: '90%' },  // Seat 4
+            { top: '50%', left: '90%' },  // Seat 5
+            { top: '70%', left: '90%' },  // Seat 6
+            { top: '80%', left: '70%' },  // Seat 7
+            { top: '80%', left: '30%' },  // Seat 8
+            { top: '70%', left: '10%' },  // Seat 9
+            { top: '50%', left: '10%' }   // Seat 10
+        ];
+
+        function updateGameState(state) {
+            // Update community cards
+            const commCards = document.getElementById('communityCards');
+            commCards.innerHTML = state.community_cards
+                .map(card => `
+                    <div class="card" data-suit="${card.slice(-1)}">
+                        ${card.slice(0, -1)}
+                    </div>
+                `).join('');
+
+            // Update phase indicator
+            document.getElementById('phaseIndicator').textContent = `Game Phase: ${state.phase}`;
+
+            // Update player cards
+            const humanPlayer = state.players.find(p => !p.is_ai);
+            const playerCardsDiv = document.getElementById('playerCards');
+            if (humanPlayer && playerCardsDiv) {
+                playerCardsDiv.innerHTML = `
+                    Your Cards: 
+                    ${humanPlayer.hand.map(card => `
+                        <div class="card" data-suit="${card.slice(-1)}">
+                            ${card.slice(0, -1)}
+                        </div>
+                    `).join('')}
+                `;
+            }
+
+            // Update player positions and status
+            const playersDiv = document.getElementById('players');
+            if (playersDiv) {
+                playersDiv.innerHTML = '';
+                
+                state.players.forEach((player, index) => {
+                    const isActive = state.current_player === player.name;
+                    const position = positions[index % positions.length];
+                    
+                    const playerElem = document.createElement('div');
+                    playerElem.className = `player${isActive ? ' active' : ''}`;
+                    playerElem.style.top = position.top;
+                    playerElem.style.left = position.left;
+                    playerElem.innerHTML = `
+                        <h3>${player.name}${isActive ? ' (ACTIVE)' : ''}</h3>
+                        <div class="cards">${player.hand.join(' ')}</div>
+                        <div>Chips: $${player.chips}</div>
+                        <div>Bet: $${player.current_bet}</div>
+                    `;
+                    
+                    playersDiv.appendChild(playerElem);
+                });
+            }
+
+            // Update controls
+            const playerControls = document.getElementById('playerControls');
+            if (playerControls) {
+                playerControls.style.display = state.is_player_turn ? 'block' : 'none';
+                playerControls.classList.toggle('hidden', !state.is_player_turn);
+                
+                if (state.is_player_turn) {
+                    const callButton = document.querySelector('.call');
+                    const raiseAmount = document.getElementById('raiseAmount');
+                    if (callButton && raiseAmount) {
+                        callButton.textContent = `Call $${state.current_bet}`;
+                        raiseAmount.min = state.current_bet * 2;
+                        raiseAmount.value = state.current_bet * 2;
+                    }
+                }
+            }
+
+            // Update action prompt
+            const actionPrompt = document.getElementById('actionPrompt');
+            if (actionPrompt) {
+                actionPrompt.innerHTML = state.is_player_turn 
+                    ? "<strong>Your turn to act!</strong>" 
+                    : `${state.current_player}'s turn`;
+            }
+        }
+
+                
+        
+        // Update the controls dynamically
+        function updateControls(state) {
+            const minRaise = state.current_bet * 2;
+            document.getElementById('raiseAmount').min = minRaise;
+            document.getElementById('raiseAmount').value = minRaise;
+            
+            // Show/hide controls based on turn
+            document.getElementById('playerControls').style.display = 
+                state.is_player_turn ? 'block' : 'none';
+            
+            // Update call button text
+            document.querySelector('.call').textContent = `Call $${state.current_bet}`;
+        }
+
+        function fold() { socket.emit('player_action', { action: 'fold', game_id: gameId }); }
+        function call() { socket.emit('player_action', { action: 'call', game_id: gameId }); }
+        function raise() {
+            const amount = document.getElementById('raiseAmount').value;
+            socket.emit('player_action', { 
+                action: 'raise', 
+                amount: parseInt(amount),
+                game_id: gameId
+            });
+        }
+
+        socket.on('game_update', updateGameState);
+        socket.on('action_result', result => {
+            if (!result.success) alert(result.message);
+        });
+
+        // Add these to the socket listeners
+        socket.on('game_result', data => {
+            alert(`Winner(s): ${data.winners.join(', ')}! Pot: $${data.pot}`);
+            document.getElementById('playerControls').classList.add('hidden');
+        });
+
+        socket.on('error', data => {
+            alert(`Error: ${data.message}`);
+            window.location.href = '/';
+        });
+
+
+        // Initialize game when page loads
+        socket.emit('join_game', {
+            game_id: gameId,
+            name: 'Player ' + Math.floor(Math.random()*1000)
+        });
+
+        // Handle game start
+        socket.on('game_update', state => {
+            if (state.phase !== 'Waiting to Start') {
+                document.getElementById('gameInstructions').style.display = 'none';
+            }
+            updateGameState(state);
+        });
+
+        
+
+
+    </script>
+</body>
+</html>

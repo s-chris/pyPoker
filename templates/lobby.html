@@ -1,0 +1,42 @@
+<!-- templates/lobby.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Poker Lobby</title>
+</head>
+<body>
+    <div id="lobbyControls">
+        <h2>Create New Game</h2>
+        <label>Number of AI opponents (1-9):</label>
+        <input type="number" id="aiCount" min="1" max="9" value="3">
+        <button onclick="createGame()">Create & Start Game</button>
+        
+        <div id="gameLink" style="display: none; margin-top: 20px;">
+            <p>Share this link with friends:</p>
+            <input type="text" id="gameUrl" readonly style="width: 300px;">
+        </div>
+    </div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script>
+        const socket = io();
+        
+        function createGame() {
+            const numAI = document.getElementById('aiCount').value;
+            socket.emit('create_game', {num_ai: numAI});
+        }
+
+        socket.on('game_created', data => {
+            const gameUrl = `${window.location.origin}/game/${data.game_id}`;
+            document.getElementById('gameUrl').value = gameUrl;
+            document.getElementById('gameLink').style.display = 'block';
+            window.location.href = gameUrl;
+        });
+
+        socket.on('error', data => {
+            alert(`Error: ${data.message}`);
+            window.location.href = '/';
+        });
+    </script>
+</body>
+</html>

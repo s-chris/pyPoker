@@ -1,0 +1,182 @@
+import random
+from enum import Enum
+
+class Suit(Enum):
+    HEARTS = "♥"
+    DIAMONDS = "♦"
+    CLUBS = "♣"
+    SPADES = "♠"
+
+class Rank(Enum):
+    TWO = (2, "2")
+    THREE = (3, "3")
+    FOUR = (4, "4")
+    FIVE = (5, "5")
+    SIX = (6, "6")
+    SEVEN = (7, "7")
+    EIGHT = (8, "8")
+    NINE = (9, "9")
+    TEN = (10, "T")
+    JACK = (11, "J")
+    QUEEN = (12, "Q")
+    KING = (13, "K")
+    ACE = (14, "A")
+
+    def __lt__(self, other):
+        return self.value[0] < other.value[0]
+
+class Card:
+    def __init__(self, rank, suit):
+        self.rank = rank
+        self.suit = suit
+
+    def __repr__(self):
+        return f"{self.rank.value[1]}{self.suit.value}"
+
+class HandStrength:
+    def __init__(self, strength, ranks, kickers=[]):
+        self.strength = strength
+        self.ranks = ranks
+        self.kickers = kickers
+
+    def __lt__(self, other):
+        if self.strength == other.strength:
+            if self.ranks == other.ranks:
+                return self.kickers < other.kickers
+            return self.ranks < other.ranks
+        return self.strength < other.strength
+
+    def __eq__(self, other):
+        return (self.strength == other.strength and 
+                self.ranks == other.ranks and 
+                self.kickers == other.kickers)
+
+class Player:
+    def __init__(self, name, chips=1000, ai_level=1):
+        self.name = name
+        self.chips = chips
+        self.hand = []
+        self.ai_level = ai_level
+        self.current_bet = 0
+
+    def __repr__(self):
+        return f"{self.name} ({self.chips} chips)"
+
+class PokerGame:
+    def __init__(self, players):
+        self.players = players
+        self.deck = []
+        self.community_cards = []
+        self.pot = 0
+        self.current_bet = 0
+
+    def new_deck(self):
+        self.deck = [Card(rank, suit) for suit in Suit for rank in Rank]
+        random.shuffle(self.deck)
+
+    def deal_hole_cards(self):
+        for _ in range(2):
+            for player in self.players:
+                player.hand.append(self.deck.pop())
+
+    def deal_community_cards(self, num=1):
+        for _ in range(num):
+            self.community_cards.append(self.deck.pop())
+
+    def evaluate_hand(self, player):
+        all_cards = player.hand + self.community_cards
+        return self._evaluate(all_cards)
+
+    def _evaluate(self, cards):
+        # Implementation of hand evaluation (simplified)
+        # Returns a HandStrength object for comparison
+        # Actual implementation would need to check all combinations
+        ranks = sorted([card.rank for card in cards], reverse=True)
+        return HandStrength(0, ranks)
+
+    def ai_decision(self, player):
+        if player.ai_level == 1:
+            return random.choice(['fold', 'call', 'raise'])
+        elif player.ai_level == 2:
+            hand_strength = self.evaluate_hand(player)
+            if hand_strength.strength > 3 or random.random() < 0.7:
+                return random.choice(['call', 'raise'])
+            else:
+                return 'fold'
+        else:
+            # Advanced AI logic
+            return 'call'
+
+    def betting_round(self, start_player_index=0):
+        active_players = [p for p in self.players if p.chips > 0]
+        current_player = start_player_index
+        num_players = len(active_players)
+        round_complete = False
+
+        while not round_complete:
+            player = active_players[current_player]
+            if player.current_bet < self.current_bet:
+                if player.ai_level > 0:
+                    decision = self.ai_decision(player)
+                    if decision == 'fold':
+                        active_players.remove(player)
+                    elif decision == 'call':
+                        diff = self.current_bet - player.current_bet
+                        player.chips -= diff
+                        self.pot += diff
+                        player.current_bet = self.current_bet
+                    elif decision == 'raise':
+                        diff = self.current_bet - player.current_bet + 10
+                        player.chips -= diff
+                        self.pot += diff
+                        self.current_bet += 10
+                        player.current_bet = self.current_bet
+                else:
+                    # Human player input
+                    print(f"Current bet: {self.current_bet}, Your chips: {player.chips}")
+                    action = input("Choose action (fold, call, raise): ")
+                    # Handle human input
+            else:
+                # Player has already matched current bet
+                pass
+
+            current_player = (current_player + 1) % num_players
+            if all(p.current_bet == self.current_bet for p in active_players):
+                round_complete = True
+
+    def play_round(self):
+        self.new_deck()
+        self.deal_hole_cards()
+        self.betting_round()
+        
+        self.deal_community_cards(3)  # Flop
+        self.betting_round()
+        
+        self.deal_community_cards(1)  # Turn
+        self.betting_round()
+        
+        self.deal_community_cards(1)  # River
+        self.betting_round()
+
+        # Showdown
+        active_players = [p for p in self.players if p.chips > 0]
+        best_hand = None
+        winner = None
+        for player in active_players:
+            hand_strength = self.evaluate_hand(player)
+            if not best_hand or hand_strength > best_hand:
+                best_hand = hand_strength
+                winner = player
+        winner.chips += self.pot
+        print(f"Winner: {winner.name} with {best_hand.strength}")
+
+# Example usage
+human = Player("You", ai_level=0)
+ai_players = [
+    Player("Easy AI", ai_level=1),
+    Player("Medium AI", ai_level=2),
+    Player("Hard AI", ai_level=3)
+]
+
+game = PokerGame([human] + ai_players)
+game.play_round()
